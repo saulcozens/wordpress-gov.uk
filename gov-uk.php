@@ -6,8 +6,9 @@ Description: provides a shortcode for including gov.uk content into a page.
 Version: 0.1alpha
 Author: Saul Cozens
 Author URI: http://saulcozens.co.uk/
-
+Text Domain: govuk
 */
+
 
 class govuk {
 
@@ -70,29 +71,79 @@ class govuk {
 		curl_close( $ch );
 
 		$govuk_json = json_decode( $response );
+
 		require_once( 'simplehtmldom/simple_html_dom.php' );
 
-		$govuk_html_fragment = str_get_html( $govuk_json->html_fragment );
+		if ( $html = str_get_html( $govuk_json->html_fragment ) ) {
 
-		foreach( $govuk_html_fragment->find( "[href]" ) as $e ) {
-			$host = parse_url( $e->href, PHP_URL_HOST );
-			if( ( $host == '' ) || ( $host == 'www.gov.uk' ) ) {
-				$e->href = add_query_arg( "govuk", urlencode( $e->href ), get_permalink() );
+			foreach( $html->find( "[href]" ) as $e ) {
+				$host = parse_url( $e->href, PHP_URL_HOST );
+				if( ( $host == '' ) || ( $host == 'www.gov.uk' ) ) {
+					$e->href = add_query_arg( "govuk", urlencode( $e->href ), get_permalink() );
+				}
 			}
-		}
-		foreach( $govuk_html_fragment->find( "[action]" ) as $e ) {
-			$host = parse_url( $e->href, PHP_URL_HOST );
-			if( ( $host == '' ) || ( $host == 'www.gov.uk' ) ) {
-				$e->action = add_query_arg( "govuk", urlencode( $e->action ), get_permalink() );
+			foreach( $html->find( "[action]" ) as $e ) {
+				$host = parse_url( $e->href, PHP_URL_HOST );
+				if( ( $host == '' ) || ( $host == 'www.gov.uk' ) ) {
+					$e->action = add_query_arg( "govuk", urlencode( $e->action ), get_permalink() );
+				}
 			}
+	
+			// Credit and licence
+			$html .= '<div class="credit">' . sprintf( __('Information supplied by <a href="%1$s">gov.uk</a>. Republished under the terms of the <a href="%2$s">Open Government Licence</a>.','govuk'), 'http://gov.uk/', 'http://www.nationalarchives.gov.uk/doc/open-government-licence/' ) . '</div>';
+			
+			// wraps output in a .govuk class, for easier CSS targeting
+			$output = '<div class="govuk">';
+			$output .= $html;
+			$output .= '</div><!-- end .govuk -->';
+	
+			return $output;
+		
+		} elseif ( $govuk_json->type == "guide" ) {
+		
+			// Needs a way to integrate gov.uk's markdown-derived mark-up language
+			// See https://github.com/alphagov/govspeak
+			
+			$html = '<h1 class="title">' . $govuk_json->title . '</h1>';
+			$html .= '<div class="overview">' . $govuk_json->overview . '</div>';
+			
+			if ( $vidurl = $govuk_json->video_url ) {
+				global $wp_embed;
+				if ( strpos($vidurl,'youtube') > 0 ) {
+					$atts = array(); // not even sure we need this
+					$html .= '<div class="video">';
+					$html .= $wp_embed->shortcode( $atts, $vidurl );
+					$html .= '<div class="video_summary">' . $govuk_json->video_summary . '</div>';
+					$html .= '</div>';
+				} else {
+					// depends what other video hosting they use
+				}
+			}
+			
+			foreach ( $govuk_json->parts as $part ) {
+				$html .= '<h2 class="part-title">' . $part->table->title . '</h2>';
+				$html .= '<div class="part-body">' . $part->table->body . '</div>';
+			}
+			
+			// will then need to turn relative gov.uk URLs into absolute
+			// possibly combine with function(s) above?
+			
+			// Credit and licence
+			$html .= '<div class="credit">' . sprintf( __('Information supplied by <a href="%1$s">gov.uk</a>. Republished under the terms of the <a href="%2$s">Open Government Licence</a>.','govuk'), 'http://gov.uk/', 'http://www.nationalarchives.gov.uk/doc/open-government-licence/' ) . '</div>';
+
+			// wraps output in a .govuk class, for easier CSS targeting
+			$output = '<div class="govuk">';
+			$output .= $html;
+			$output .= '</div><!-- end .govuk -->';
+
+			return $output;
+		
+		} else {
+		
+			// unrecognised content type, don't know what to do with it, bail out!
+			return;
+		
 		}
-
-		// wraps output in a .govuk class, for easier CSS targeting
-		$output = '<div class="govuk">';
-		$output .= $govuk_html_fragment;
-		$output .= '</div><!-- end .govuk -->';
-
-		return $output;
 
 	}
 
