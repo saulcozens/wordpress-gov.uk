@@ -52,6 +52,18 @@ class govuk {
 		
 		$request_args[ 'redirection' ] = 0;
 		
+		// Check if we've cached this request. I know you're not supposed to cache HTTP POST
+		// requests, but five minutes won't hurt and most of this stuff is decision trees, 
+		// which (as they are indempotent) should arguably use GET anyway. :)
+		// FIXME: Perhaps some special cases at a later date?
+		// Note we are constructing a cache key from all the args, including POSTed fields
+		$cache_key = md5( $url . serialize( $request_args ) );
+		if ( $cache = get_transient( $cache_key ) ) {
+			error_log( "SW: Got from cache" );
+			return $cache;
+		}
+		error_log( "SW: NOT got from cache" );
+		
 		// Handle a redirection ourselves, to avoid cURL/WP bug #17490
 		// http://core.trac.wordpress.org/attachment/ticket/17490/
 		// N.B. This will only handle one redirection
@@ -65,6 +77,9 @@ class govuk {
 			) {
 			$response = wp_remote_get( $response[ 'headers' ][ 'location' ] );
 		}
+
+		// Cache it in a transient for five minutes
+		set_transient( $cache_key, $response[ 'body' ], 5*60 );
 
 		return $response[ 'body' ];
 	}
