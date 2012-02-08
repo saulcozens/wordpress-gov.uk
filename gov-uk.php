@@ -31,8 +31,8 @@ class govuk {
 
 		if (
 			isset( $_GET['govuk'] ) &&
-			strpos( $url, rawurldecode( $_GET['govuk'] ) ) == 0
-			// do we have a url in the query string and does it start withe the attribute of the shortcode?
+			strpos( $url, rawurldecode( $_GET['govuk'] ) ) === 0
+			// do we have a url in the query string and does it start with the attribute of the shortcode?
 		) {
 			$url = "https://www.gov.uk" . rawurldecode( $_GET['govuk'] );
 			if( $_SERVER['REQUEST_METHOD'] == 'POST' ) {
