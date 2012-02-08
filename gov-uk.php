@@ -11,71 +11,99 @@ Text Domain: govuk
 
 
 class govuk {
-
-	function insert_content( $attr ) {
-
-		extract( shortcode_atts( array(
-			'url' => ''
-		 ), $attr ) );
-
-		if ( empty($url) ) {
-			// forgot to reference a particular URL? let's just pretend that didn't happen.
-			return;
-		}
-		
-		$ch = curl_init();
-
-		$url = untrailingslashit( $url ); // in case url has a slash on the end
-
-		$url = parse_url( $url, PHP_URL_PATH );
+	
+	/**
+	 * Handles the HTTP request to gov.uk
+	 *
+	 * @param string $url 
+	 * @return string|object Either the body of the response, or a WP_Error object
+	 */
+	static function get( $url ) {
+		$request_args = array();
+		// Cope with people entering the domain on $url
+		$url = str_replace( 'https://www.gov.uk', '', $url );
 
 		if (
 			isset( $_GET['govuk'] ) &&
 			strpos( $url, rawurldecode( $_GET['govuk'] ) ) == 0
-			// do we have a url in the query string and does it start withe the attribute of the shortcode?
+			// do we have a url in the query string and does it start with the attribute of the shortcode?
 		) {
-			$url = "https://www.gov.uk" . rawurldecode( $_GET['govuk'] );
+			$url = trailingslashit( "https://www.gov.uk" ) . ltrim( rawurldecode( $_GET['govuk'] ), '/' );
 			if( $_SERVER['REQUEST_METHOD'] == 'POST' ) {
 				// we got post data - better post it on to gov.uk
-				$postdata = "";
-				foreach( $_POST as $name => $value ) {
-					if( is_array( $value ) ) {
-						foreach( $value as $subname => $subvalue ) {
-							$postdata .= $name . "[" . $subname . "]=" . rawurlencode( $subvalue ) . "&";
-						}
-					} else {
-						$postdata .= $name . "=" . rawurlencode( $value ) . "&";
-					}
-				}
-				$postdata = rtrim( $postdata, '&' );
-				curl_setopt( $ch, CURLOPT_POST, count( $_POST ) );
-				curl_setopt( $ch, CURLOPT_POSTFIELDS, $postdata );
+				$request_args[ 'method' ] = 'POST';
+				$request_args[ 'body' ] = $_POST;
+				
 			}
 		} else {
-			$url = "https://www.gov.uk" . $url;
+			$url = trailingslashit( "https://www.gov.uk" ) . ltrim( $url, '/' );
 		}
 
+		// Avoid trailing slashes…
 		$path = parse_url( $url, PHP_URL_PATH );
+		$path = rtrim( $path, '/' );
 		$url = str_replace( $path, $path . ".json", $url );
+		$url = rtrim( $url, '/' );
 		/*
 			fancy way of sticking .json on the url while maintaining the query string.
 			this is going to have issues with any path that exists in the domain.
 			####BAD CODE
 		*/
+		
+		$request_args[ 'redirection' ] = 0;
+		
+		// Handle a redirection ourselves, to avoid cURL/WP bug #17490
+		// http://core.trac.wordpress.org/attachment/ticket/17490/
+		// N.B. This will only handle one redirection
+		$response = wp_remote_request( $url, $request_args );
+		if ( is_wp_error( $response ) )
+			return $response;
 
-		curl_setopt( $ch, CURLOPT_URL, $url );
-		curl_setopt( $ch, CURLOPT_HEADER, 0 );
-		curl_setopt( $ch, CURLOPT_RETURNTRANSFER, true );
-		curl_setopt( $ch, CURLOPT_FOLLOWLOCATION, true );
-		$response = curl_exec( $ch );
-		curl_close( $ch );
+		if ( 
+			( 301 == $response[ 'response' ][ 'code' ] || 302 == $response[ 'response' ][ 'code' ] )
+			&& $response[ 'headers' ][ 'location' ] 
+			) {
+			$response = wp_remote_get( $response[ 'headers' ][ 'location' ] );
+		}
 
+		return $response[ 'body' ];
+	}
+
+	/**
+	 * Called by the WP shortcode kit to return the
+	 * HTML that the shortcode will be replaced by.
+	 *
+	 * @param string $attr 
+	 * @return string Some HTML (or a null string)
+	 */
+	static function insert_content( $attr ) {
+
+		extract( shortcode_atts( array(
+			'url' => ''
+		 ), $attr ) );
+	
+		if ( empty($url) ) {
+			// forgot to reference a particular URL? let's just pretend that didn't happen.
+			return;
+		}
+		
+		$response = self::get( $url );
+
+		// Check for errors in the HTTP response, e.g. timeouts
+		if ( is_wp_error( $response ) ) {
+			// If the user can edit the post, let's show them a
+			// meaningful error message.
+			if ( current_user_can( 'edit_posts', get_the_ID() ) )
+				return '<p><strong>ERROR:</strong> ' . $response->get_error_message() . '</p>';
+			return; // Unprivileged users get nuffink.
+		}
+		
 		$govuk_json = json_decode( $response );
-
+	
 		require_once( 'simplehtmldom/simple_html_dom.php' );
-
+	
 		if ( $html = str_get_html( $govuk_json->html_fragment ) ) {
-
+	
 			foreach( $html->find( "[href]" ) as $e ) {
 				$host = parse_url( $e->href, PHP_URL_HOST );
 				if( ( $host == '' ) || ( $host == 'www.gov.uk' ) ) {
@@ -130,21 +158,18 @@ class govuk {
 			
 			// Credit and licence
 			$html .= '<div class="credit">' . sprintf( __('Information supplied by <a href="%1$s">gov.uk</a>. Republished under the terms of the <a href="%2$s">Open Government Licence</a>.','govuk'), 'http://gov.uk/', 'http://www.nationalarchives.gov.uk/doc/open-government-licence/' ) . '</div>';
-
+	
 			// wraps output in a .govuk class, for easier CSS targeting
 			$output = '<div class="govuk">';
 			$output .= $html;
 			$output .= '</div><!-- end .govuk -->';
-
+	
 			return $output;
-		
-		} else {
-		
-			// unrecognised content type, don't know what to do with it, bail out!
-			return;
 		
 		}
 
+		// unrecognised content type, don't know what to do with it, bail out!
+		return;
 	}
 
 }
