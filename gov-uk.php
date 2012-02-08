@@ -25,7 +25,7 @@ class govuk {
 
 		if (
 			isset( $_GET['govuk'] ) &&
-			strpos( $url, rawurldecode( $_GET['govuk'] ) ) == 0
+			strpos( $url, rawurldecode( $_GET['govuk'] ) ) === 0
 			// do we have a url in the query string and does it start with the attribute of the shortcode?
 		) {
 			$url = trailingslashit( "https://www.gov.uk" ) . ltrim( rawurldecode( $_GET['govuk'] ), '/' );
@@ -76,6 +76,8 @@ class govuk {
 			&& $response[ 'headers' ][ 'location' ] 
 			) {
 			$response = wp_remote_get( $response[ 'headers' ][ 'location' ] );
+			if ( is_wp_error( $response ) )
+				return $response;
 		}
 
 		// Cache it in a transient for five minutes
