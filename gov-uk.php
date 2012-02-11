@@ -59,10 +59,8 @@ class govuk {
 		// Note we are constructing a cache key from all the args, including POSTed fields
 		$cache_key = md5( $url . serialize( $request_args ) );
 		if ( $cache = get_transient( $cache_key ) ) {
-			error_log( "SW: Got from cache" );
 			return $cache;
 		}
-		error_log( "SW: NOT got from cache" );
 		
 		// Handle a redirection ourselves, to avoid cURL/WP bug #17490
 		// http://core.trac.wordpress.org/attachment/ticket/17490/
